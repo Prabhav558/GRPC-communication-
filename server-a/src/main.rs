@@ -2,6 +2,7 @@ use axum::{extract::State, routing::{get, post}, Json, Router};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
 use tower_http::cors::CorsLayer;
 
 pub mod messenger {
@@ -115,10 +116,30 @@ async fn get_messages(State(state): State<AppState>) -> Json<MessagesJsonRespons
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🔄 Connecting to Server B at http://localhost:3004...");
+    let server_b_host = std::env::var("SERVER_B_HOST").unwrap_or_else(|_| "localhost".to_string());
+    let certs_dir = std::env::var("CERTS_DIR").unwrap_or_else(|_| "../certs".to_string());
+    let server_b_url = format!("https://{}:3004", server_b_host);
 
-    let client = MessengerClient::connect("http://localhost:3004").await?;
+    println!("🔄 Connecting to Server B at {} (mTLS)...", server_b_url);
 
+    // Load mTLS certificates
+    let ca_cert = std::fs::read_to_string(format!("{}/ca.pem", certs_dir))?;
+    let client_cert = std::fs::read_to_string(format!("{}/server-a.pem", certs_dir))?;
+    let client_key = std::fs::read_to_string(format!("{}/server-a-key.pem", certs_dir))?;
+
+    let tls_config = ClientTlsConfig::new()
+        .domain_name(server_b_host.clone())
+        .ca_certificate(Certificate::from_pem(&ca_cert))
+        .identity(Identity::from_pem(&client_cert, &client_key));
+
+    let channel = Channel::from_shared(server_b_url)?
+        .tls_config(tls_config)?
+        .connect()
+        .await?;
+
+    let client = MessengerClient::new(channel);
+
+    println!("🔒 mTLS enabled (ECDSA P-256)");
     println!("✅ Connected to Server B!");
 
     let state = AppState {

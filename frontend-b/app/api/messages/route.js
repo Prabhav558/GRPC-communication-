@@ -1,11 +1,14 @@
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import path from "path";
+import fs from "fs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const PROTO_PATH = path.join(process.cwd(), "..", "proto", "message.proto");
+const SERVER_B_HOST = process.env.SERVER_B_HOST || "localhost";
+const CERTS_DIR = process.env.CERTS_DIR || path.join(process.cwd(), "..", "certs");
+const PROTO_PATH = process.env.PROTO_PATH || path.join(process.cwd(), "..", "proto", "message.proto");
 
 const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
     keepCase: true,
@@ -15,10 +18,15 @@ const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
     oneofs: true,
 });
 
+// Load mTLS certificates
+const ca = fs.readFileSync(path.join(CERTS_DIR, "ca.pem"));
+const clientCert = fs.readFileSync(path.join(CERTS_DIR, "server-a.pem"));
+const clientKey = fs.readFileSync(path.join(CERTS_DIR, "server-a-key.pem"));
+
 const proto = grpc.loadPackageDefinition(packageDefinition);
 const client = new proto.messenger.Messenger(
-    "localhost:3004",
-    grpc.credentials.createInsecure()
+    `${SERVER_B_HOST}:3004`,
+    grpc.credentials.createSsl(ca, clientKey, clientCert)
 );
 
 export async function GET() {

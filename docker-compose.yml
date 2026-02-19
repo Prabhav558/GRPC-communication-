@@ -1,0 +1,46 @@
+services:
+  server-b:
+    build:
+      context: .
+      dockerfile: server-b/Dockerfile
+    ports:
+      - "3004:3004"
+    environment:
+      - CERTS_DIR=/app/certs
+    volumes:
+      - ./certs:/app/certs:ro
+
+  server-a:
+    build:
+      context: .
+      dockerfile: server-a/Dockerfile
+    ports:
+      - "3003:3003"
+    environment:
+      - SERVER_B_HOST=server-b
+      - CERTS_DIR=/app/certs
+    volumes:
+      - ./certs:/app/certs:ro
+    depends_on:
+      - server-b
+
+  frontend-a:
+    build:
+      context: ./frontend-a
+    ports:
+      - "3002:3002"
+
+  frontend-b:
+    build:
+      context: ./frontend-b
+    ports:
+      - "3000:3000"
+    environment:
+      - SERVER_B_HOST=server-b
+      - CERTS_DIR=/app/certs
+      - PROTO_PATH=/app/proto/message.proto
+    volumes:
+      - ./certs:/app/certs:ro
+      - ./proto:/app/proto:ro
+    depends_on:
+      - server-b

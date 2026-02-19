@@ -5,6 +5,9 @@ node_modules/
 target/
 .next/
 
+# Certs (private keys)
+certs/*-key.pem
+
 # OS
 .DS_Store
 Thumbs.db
