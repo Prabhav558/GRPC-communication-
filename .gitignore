@@ -1,13 +1,11 @@
-# Dependencies
-node_modules/
+# Rust
+**/target/
 
-# Build outputs
-target/
-.next/
+# Node.js
+node-server/node_modules/
+node-server/.next/
 
-# Certs (private keys)
-certs/*-key.pem
-
-# OS
-.DS_Store
-Thumbs.db
+# Certs (generated, keep gen script)
+middleware/certs/*.pem
+encryption-server/certs/*.pem
+node-server/certs/*.pem

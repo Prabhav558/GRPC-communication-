@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package pipeline;
+
+// Middleware → Encryption Server
+service EncryptionService {
+  rpc ProcessData (DataRequest) returns (DataResponse);
+}
+
+// Encryption Server → Server-C (Node.js)
+service DisplayService {
+  rpc SendToDisplay (DisplayRequest) returns (DisplayResponse);
+}
+
+message DataRequest {
+  string json_data = 1;
+  string source_id = 2;
+}
+
+message DataResponse {
+  bool success = 1;
+  string request_id = 2;
+}
+
+message DisplayRequest {
+  string json_data = 1;
+  string request_id = 2;
+}
+
+message DisplayResponse {
+  bool success = 1;
+  string display_id = 2;
+}

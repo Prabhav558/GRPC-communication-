@@ -1,11 +1,19 @@
 #!/usr/bin/env bash
-# Generate mTLS certificates using ECDSA P-256 (prime256v1)
+# Generate mTLS certificates using ECDSA P-256 for 3 services:
+#   - middleware (client only → connects to encryption-server)
+#   - encryption-server (server + client → accepts from middleware, connects to node-server)
+#   - node-server (server only → accepts from encryption-server)
+# Certs are distributed into each server's certs/ directory.
 # All certs are X.509 v3 (required by rustls)
 
 set -euo pipefail
-cd "$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# CA config (v3)
+TMPDIR=$(mktemp -d)
+cd "$TMPDIR"
+
+# ── CA config ──
 cat > ca.cnf <<EOF
 [req]
 distinguished_name = req_dn
@@ -23,18 +31,28 @@ authorityKeyIdentifier = keyid:always,issuer
 keyUsage = critical,keyCertSign,cRLSign
 EOF
 
-# Server cert extensions (SAN includes both localhost and Docker service name)
-cat > server-b-ext.cnf <<EOF
+# ── Encryption-server cert extensions (server + client auth) ──
+cat > encryption-server-ext.cnf <<EOF
+basicConstraints = CA:FALSE
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid,issuer
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = serverAuth,clientAuth
+subjectAltName = DNS:localhost,DNS:encryption-server,IP:127.0.0.1
+EOF
+
+# ── Node-server cert extensions (server auth only) ──
+cat > node-server-ext.cnf <<EOF
 basicConstraints = CA:FALSE
 subjectKeyIdentifier = hash
 authorityKeyIdentifier = keyid,issuer
 keyUsage = critical,digitalSignature,keyEncipherment
 extendedKeyUsage = serverAuth
-subjectAltName = DNS:localhost,DNS:server-b,IP:127.0.0.1
+subjectAltName = DNS:localhost,DNS:node-server,IP:127.0.0.1
 EOF
 
-# Client cert extensions
-cat > server-a-ext.cnf <<EOF
+# ── Middleware cert extensions (client auth only) ──
+cat > middleware-ext.cnf <<EOF
 basicConstraints = CA:FALSE
 subjectKeyIdentifier = hash
 authorityKeyIdentifier = keyid,issuer
@@ -46,29 +64,48 @@ echo "🔐 Generating ECDSA P-256 CA (X.509 v3)..."
 openssl ecparam -genkey -name prime256v1 -noout -out ca-key.pem
 openssl req -new -x509 -key ca-key.pem -out ca.pem -days 365 -config ca.cnf
 
-echo "🔐 Generating Server B (gRPC server) certificate (v3)..."
-openssl ecparam -genkey -name prime256v1 -noout -out server-b-key.pem
-openssl req -new -key server-b-key.pem -out server-b.csr \
-  -subj "/CN=server-b/O=Demo"
-openssl x509 -req -in server-b.csr -CA ca.pem -CAkey ca-key.pem \
-  -CAcreateserial -out server-b.pem -days 365 \
-  -extfile server-b-ext.cnf
-rm -f server-b.csr
+echo "🔐 Generating Encryption Server certificate (server + client)..."
+openssl ecparam -genkey -name prime256v1 -noout -out encryption-server-key.pem
+openssl req -new -key encryption-server-key.pem -out encryption-server.csr \
+  -subj "/CN=encryption-server/O=Demo"
+openssl x509 -req -in encryption-server.csr -CA ca.pem -CAkey ca-key.pem \
+  -CAcreateserial -out encryption-server.pem -days 365 \
+  -extfile encryption-server-ext.cnf
 
-echo "🔐 Generating Server A (gRPC client) certificate (v3)..."
-openssl ecparam -genkey -name prime256v1 -noout -out server-a-key.pem
-openssl req -new -key server-a-key.pem -out server-a.csr \
-  -subj "/CN=server-a/O=Demo"
-openssl x509 -req -in server-a.csr -CA ca.pem -CAkey ca-key.pem \
-  -CAcreateserial -out server-a.pem -days 365 \
-  -extfile server-a-ext.cnf
-rm -f server-a.csr
+echo "🔐 Generating Node Server certificate (server)..."
+openssl ecparam -genkey -name prime256v1 -noout -out node-server-key.pem
+openssl req -new -key node-server-key.pem -out node-server.csr \
+  -subj "/CN=node-server/O=Demo"
+openssl x509 -req -in node-server.csr -CA ca.pem -CAkey ca-key.pem \
+  -CAcreateserial -out node-server.pem -days 365 \
+  -extfile node-server-ext.cnf
 
-rm -f ca.srl ca.cnf server-b-ext.cnf server-a-ext.cnf
+echo "🔐 Generating Middleware certificate (client)..."
+openssl ecparam -genkey -name prime256v1 -noout -out middleware-key.pem
+openssl req -new -key middleware-key.pem -out middleware.csr \
+  -subj "/CN=middleware/O=Demo"
+openssl x509 -req -in middleware.csr -CA ca.pem -CAkey ca-key.pem \
+  -CAcreateserial -out middleware.pem -days 365 \
+  -extfile middleware-ext.cnf
+
+# ── Distribute certs to each server ──
+echo ""
+echo "📦 Distributing certs to servers..."
+
+mkdir -p "$ROOT_DIR/middleware/certs"
+cp ca.pem middleware.pem middleware-key.pem "$ROOT_DIR/middleware/certs/"
+
+mkdir -p "$ROOT_DIR/encryption-server/certs"
+cp ca.pem encryption-server.pem encryption-server-key.pem "$ROOT_DIR/encryption-server/certs/"
+
+mkdir -p "$ROOT_DIR/node-server/certs"
+cp ca.pem node-server.pem node-server-key.pem "$ROOT_DIR/node-server/certs/"
+
+# Cleanup temp dir
+rm -rf "$TMPDIR"
 
 echo ""
-echo "✅ All certificates generated:"
-ls -la *.pem
-echo ""
-echo "📋 CA certificate version:"
-openssl x509 -in ca.pem -text -noout | grep -E "(Version|Public Key Algorithm|ASN1 OID)"
+echo "✅ All certificates generated and distributed:"
+echo "  middleware/certs/         → ca.pem, middleware.pem, middleware-key.pem"
+echo "  encryption-server/certs/ → ca.pem, encryption-server.pem, encryption-server-key.pem"
+echo "  node-server/certs/       → ca.pem, node-server.pem, node-server-key.pem"

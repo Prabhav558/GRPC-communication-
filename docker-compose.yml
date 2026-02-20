@@ -1,46 +1,27 @@
 services:
-  server-b:
+  node-server:
     build:
-      context: .
-      dockerfile: server-b/Dockerfile
+      context: ./node-server
+    ports:
+      - "3000:3000"
+      - "3005:3005"
+
+  encryption-server:
+    build:
+      context: ./encryption-server
     ports:
       - "3004:3004"
     environment:
-      - CERTS_DIR=/app/certs
-    volumes:
-      - ./certs:/app/certs:ro
+      - NODE_SERVER_HOST=node-server
+    depends_on:
+      - node-server
 
-  server-a:
+  middleware:
     build:
-      context: .
-      dockerfile: server-a/Dockerfile
+      context: ./middleware
     ports:
       - "3003:3003"
     environment:
-      - SERVER_B_HOST=server-b
-      - CERTS_DIR=/app/certs
-    volumes:
-      - ./certs:/app/certs:ro
+      - ENCRYPTION_SERVER_HOST=encryption-server
     depends_on:
-      - server-b
-
-  frontend-a:
-    build:
-      context: ./frontend-a
-    ports:
-      - "3002:3002"
-
-  frontend-b:
-    build:
-      context: ./frontend-b
-    ports:
-      - "3000:3000"
-    environment:
-      - SERVER_B_HOST=server-b
-      - CERTS_DIR=/app/certs
-      - PROTO_PATH=/app/proto/message.proto
-    volumes:
-      - ./certs:/app/certs:ro
-      - ./proto:/app/proto:ro
-    depends_on:
-      - server-b
+      - encryption-server

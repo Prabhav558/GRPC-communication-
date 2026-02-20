@@ -1,0 +1,13 @@
+[package]
+name = "encryption-server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tonic = { version = "0.12", features = ["tls"] }
+prost = "0.13"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4"] }
+
+[build-dependencies]
+tonic-build = "0.12"
