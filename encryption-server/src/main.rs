@@ -9,7 +9,11 @@ pub mod pipeline {
 
 use pipeline::display_service_client::DisplayServiceClient;
 use pipeline::encryption_service_server::{EncryptionService, EncryptionServiceServer};
-use pipeline::{DataRequest, DataResponse, DisplayRequest};
+use pipeline::{
+    CdcEventDisplayRequest, CdcEventDisplayResponse, CdcEventRequest, CdcEventResponse,
+    DataRequest, DataResponse, DbMetadataDisplayRequest, DbMetadataDisplayResponse,
+    DbMetadataRequest, DbMetadataResponse, DisplayRequest,
+};
 
 pub struct MyEncryptionService {
     display_client: Arc<Mutex<DisplayServiceClient<Channel>>>,
@@ -54,6 +58,81 @@ impl EncryptionService for MyEncryptionService {
                     "Failed to forward to display: {}",
                     e
                 )))
+            }
+        }
+    }
+
+    async fn process_db_metadata(
+        &self,
+        request: Request<DbMetadataRequest>,
+    ) -> Result<Response<DbMetadataResponse>, Status> {
+        let req = request.into_inner();
+        let response_id = uuid::Uuid::new_v4().to_string();
+
+        println!(
+            "📊 Received DB metadata from middleware (request_id: {})",
+            req.request_id
+        );
+
+        let mut display_client = self.display_client.lock().await;
+        let display_request = tonic::Request::new(DbMetadataDisplayRequest {
+            request_id: req.request_id.clone(),
+            database_info: req.database_info,
+            tables: req.tables,
+        });
+
+        match display_client.send_db_metadata(display_request).await {
+            Ok(response) => {
+                let res = response.into_inner();
+                println!("✅ DB metadata forwarded to Node Server (display_id: {})", res.display_id);
+                Ok(Response::new(DbMetadataResponse {
+                    success: true,
+                    response_id,
+                }))
+            }
+            Err(e) => {
+                eprintln!("❌ Failed to forward DB metadata: {}", e);
+                Err(Status::internal(format!("Failed to forward DB metadata: {}", e)))
+            }
+        }
+    }
+
+    async fn process_cdc_event(
+        &self,
+        request: Request<CdcEventRequest>,
+    ) -> Result<Response<CdcEventResponse>, Status> {
+        let req = request.into_inner();
+        let ack_id = uuid::Uuid::new_v4().to_string();
+
+        println!(
+            "🔄 Received CDC event: {} on {}.{} (id: {})",
+            req.operation, req.schema_name, req.table_name, req.event_id
+        );
+
+        let mut display_client = self.display_client.lock().await;
+        let display_request = tonic::Request::new(CdcEventDisplayRequest {
+            event_id: req.event_id,
+            operation: req.operation,
+            table_name: req.table_name,
+            schema_name: req.schema_name,
+            before_data: req.before_data,
+            after_data: req.after_data,
+            timestamp: req.timestamp,
+            lsn: req.lsn,
+        });
+
+        match display_client.send_cdc_event(display_request).await {
+            Ok(response) => {
+                let _res = response.into_inner();
+                println!("✅ CDC event forwarded to Node Server");
+                Ok(Response::new(CdcEventResponse {
+                    success: true,
+                    ack_id,
+                }))
+            }
+            Err(e) => {
+                eprintln!("❌ Failed to forward CDC event: {}", e);
+                Err(Status::internal(format!("Failed to forward CDC event: {}", e)))
             }
         }
     }

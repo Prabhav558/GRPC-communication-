@@ -14,5 +14,6 @@ RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/
 COPY --from=builder /app/target/release/middleware /usr/local/bin/middleware
 COPY certs/ /app/certs/
 WORKDIR /app
-EXPOSE 3003
+EXPOSE 3003 3006
 CMD ["middleware"]
+

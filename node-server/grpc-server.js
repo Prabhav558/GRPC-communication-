@@ -19,7 +19,7 @@ const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
 
 const pipeline = grpc.loadPackageDefinition(packageDefinition).pipeline;
 
-// DisplayService implementation
+// ── Existing handler ────────────────────────────────────────────────────────
 function sendToDisplay(call, callback) {
     const { json_data, request_id } = call.request;
 
@@ -39,6 +39,52 @@ function sendToDisplay(call, callback) {
     callback(null, { success: true, display_id });
 }
 
+// ── NEW: DB Metadata handler ────────────────────────────────────────────────
+function sendDbMetadata(call, callback) {
+    const { request_id, database_info, tables } = call.request;
+
+    console.log(`📊 Received DB metadata (request_id: ${request_id}, tables: ${tables.length})`);
+
+    if (!globalThis.__dbMetadata) globalThis.__dbMetadata = {};
+
+    globalThis.__dbMetadata[database_info.database_name] = {
+        request_id,
+        database_info,
+        tables,
+        last_updated: new Date().toISOString(),
+    };
+
+    const display_id = `db-meta-${Date.now()}`;
+    console.log(`✅ DB metadata stored (display_id: ${display_id})`);
+
+    callback(null, { success: true, display_id });
+}
+
+// ── NEW: CDC Event handler ──────────────────────────────────────────────────
+function sendCdcEvent(call, callback) {
+    const event = call.request;
+
+    console.log(`🔄 Received CDC event: ${event.operation} on ${event.schema_name}.${event.table_name} (id: ${event.event_id})`);
+
+    // Add to CDC events with received timestamp
+    if (!globalThis.__cdcEvents) globalThis.__cdcEvents = [];
+    globalThis.__cdcEvents.push({
+        ...event,
+        received_at: new Date().toISOString(),
+    });
+
+    // Keep only the last 1000 events (FIFO)
+    if (globalThis.__cdcEvents.length > 1000) {
+        globalThis.__cdcEvents.shift();
+    }
+
+    const display_id = `cdc-${event.event_id || Date.now()}`;
+    console.log(`✅ CDC event stored (total: ${globalThis.__cdcEvents.length})`);
+
+    callback(null, { success: true, display_id });
+}
+
+// ── Start gRPC server ───────────────────────────────────────────────────────
 function startGrpcServer() {
     const server = new grpc.Server();
 
@@ -53,6 +99,8 @@ function startGrpcServer() {
 
     server.addService(pipeline.DisplayService.service, {
         sendToDisplay: sendToDisplay,
+        sendDbMetadata: sendDbMetadata,
+        sendCdcEvent: sendCdcEvent,
     });
 
     server.bindAsync("0.0.0.0:3005", tlsCredentials, (err, port) => {

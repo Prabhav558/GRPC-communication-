@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package pipeline;
+
+option java_package = "com.grpc.cdc.proto";
+option java_outer_classname = "PipelineProto";
+option java_multiple_files = true;
+
+// Middleware receives CDC events from Java service
+service CdcIngestionService {
+  rpc IngestCdcEvent (CdcEventRequest) returns (CdcEventResponse);
+}
+
+// ========== CDC EVENT MESSAGES ==========
+message CdcEventRequest {
+  string event_id = 1;
+  string operation = 2;        // INSERT, UPDATE, DELETE
+  string table_name = 3;
+  string schema_name = 4;
+  string before_data = 5;      // JSON string (null for INSERT)
+  string after_data = 6;       // JSON string (null for DELETE)
+  int64 timestamp = 7;         // Unix timestamp millis
+  int64 lsn = 8;               // Log Sequence Number
+}
+
+message CdcEventResponse {
+  bool success = 1;
+  string ack_id = 2;
+}

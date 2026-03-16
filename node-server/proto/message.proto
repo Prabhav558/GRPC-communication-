@@ -2,16 +2,25 @@ syntax = "proto3";
 
 package pipeline;
 
-// Middleware → Encryption Server
+// ========== EXISTING SERVICES ==========
 service EncryptionService {
   rpc ProcessData (DataRequest) returns (DataResponse);
+  rpc ProcessDbMetadata (DbMetadataRequest) returns (DbMetadataResponse);  // NEW
+  rpc ProcessCdcEvent (CdcEventRequest) returns (CdcEventResponse);        // NEW
 }
 
-// Encryption Server → Server-C (Node.js)
 service DisplayService {
   rpc SendToDisplay (DisplayRequest) returns (DisplayResponse);
+  rpc SendDbMetadata (DbMetadataDisplayRequest) returns (DbMetadataDisplayResponse);  // NEW
+  rpc SendCdcEvent (CdcEventDisplayRequest) returns (CdcEventDisplayResponse);        // NEW
 }
 
+// NEW: Middleware receives CDC events from Java service
+service CdcIngestionService {
+  rpc IngestCdcEvent (CdcEventRequest) returns (CdcEventResponse);
+}
+
+// ========== EXISTING MESSAGES ==========
 message DataRequest {
   string json_data = 1;
   string source_id = 2;
@@ -28,6 +37,85 @@ message DisplayRequest {
 }
 
 message DisplayResponse {
+  bool success = 1;
+  string display_id = 2;
+}
+
+// ========== DATABASE METADATA MESSAGES ==========
+message DbMetadataRequest {
+  string request_id = 1;
+  DatabaseInfo database_info = 2;
+  repeated TableInfo tables = 3;
+}
+
+message DbMetadataResponse {
+  bool success = 1;
+  string response_id = 2;
+}
+
+message DatabaseInfo {
+  string database_name = 1;
+  string database_size = 2;
+  int32 table_count = 3;
+  string postgres_version = 4;
+  string timestamp = 5;
+}
+
+message TableInfo {
+  string table_name = 1;
+  string schema_name = 2;
+  int64 row_count = 3;
+  string table_size = 4;
+  repeated ColumnInfo columns = 5;
+}
+
+message ColumnInfo {
+  string column_name = 1;
+  string data_type = 2;
+  bool is_nullable = 3;
+  string default_value = 4;
+}
+
+message DbMetadataDisplayRequest {
+  string request_id = 1;
+  DatabaseInfo database_info = 2;
+  repeated TableInfo tables = 3;
+}
+
+message DbMetadataDisplayResponse {
+  bool success = 1;
+  string display_id = 2;
+}
+
+// ========== CDC EVENT MESSAGES ==========
+message CdcEventRequest {
+  string event_id = 1;
+  string operation = 2;        // INSERT, UPDATE, DELETE
+  string table_name = 3;
+  string schema_name = 4;
+  string before_data = 5;      // JSON string (null for INSERT)
+  string after_data = 6;       // JSON string (null for DELETE)
+  int64 timestamp = 7;         // Unix timestamp millis
+  int64 lsn = 8;              // Log Sequence Number
+}
+
+message CdcEventResponse {
+  bool success = 1;
+  string ack_id = 2;
+}
+
+message CdcEventDisplayRequest {
+  string event_id = 1;
+  string operation = 2;
+  string table_name = 3;
+  string schema_name = 4;
+  string before_data = 5;
+  string after_data = 6;
+  int64 timestamp = 7;
+  int64 lsn = 8;
+}
+
+message CdcEventDisplayResponse {
   bool success = 1;
   string display_id = 2;
 }

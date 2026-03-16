@@ -1,18 +1,57 @@
 services:
+  # PostgreSQL Database
+  postgres:
+    build:
+      context: ./postgres
+    ports:
+      - "5432:5432"
+    env_file:
+      - .env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    command: postgres -c wal_level=logical -c max_replication_slots=4 -c max_wal_senders=4
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pipeline_user} -d ${POSTGRES_DB:-pipeline_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Java CDC Service (watches PostgreSQL WAL, forwards events to middleware via mTLS gRPC)
+  cdc-service:
+    build:
+      context: ./cdc-service
+    env_file:
+      - .env
+    environment:
+      - MIDDLEWARE_PORT=3006
+      - DATA_DIR=/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      middleware:
+        condition: service_started
+    volumes:
+      - ./certs:/app/certs:ro
+      - cdc_data:/app/data
+
   node-server:
     build:
       context: ./node-server
     ports:
       - "3000:3000"
       - "3005:3005"
+    env_file:
+      - .env
+    volumes:
+      - node_data:/app/data
 
   encryption-server:
     build:
       context: ./encryption-server
     ports:
       - "3004:3004"
-    environment:
-      - NODE_SERVER_HOST=node-server
+    env_file:
+      - .env
     depends_on:
       - node-server
 
@@ -20,8 +59,15 @@ services:
     build:
       context: ./middleware
     ports:
-      - "3003:3003"
-    environment:
-      - ENCRYPTION_SERVER_HOST=encryption-server
+      - "3003:3003"   # REST API
+      - "3006:3006"   # gRPC CDC Ingestion (mTLS)
+    env_file:
+      - .env
     depends_on:
       - encryption-server
+      - postgres
+
+volumes:
+  postgres_data:
+  node_data:
+  cdc_data:
